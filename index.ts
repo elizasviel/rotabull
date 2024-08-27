@@ -22,9 +22,8 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Add this function to estimate tokens more conservatively
 function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 2); // Even more conservative estimate
+  return Math.ceil(text.length / 2); //Rough estimate of tokens
 }
 
 app.post("/suggest", async (req, res) => {
