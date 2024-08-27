@@ -1,15 +1,17 @@
 import fetch, { Response } from "node-fetch";
+import type { RequestInit } from "node-fetch";
+import fs from "fs/promises";
+import path from "path";
+import pLimit from "p-limit";
 
 const ZENDESK_API_TOKEN = process.env.ZENDESK_API_TOKEN;
-const ZENDESK_SUBDOMAIN = "rotabullsupport.zendesk.com";
-const ZENDESK_USER_EMAIL = "evan@rotabull.com";
+const ZENDESK_SUBDOMAIN = process.env.ZENDESK_SUBDOMAIN;
+const ZENDESK_USER_EMAIL = process.env.ZENDESK_USER_EMAIL;
 
 if (!ZENDESK_API_TOKEN) {
   console.error("ZENDESK_API_TOKEN environment variable is not set. Exiting.");
   process.exit(1);
 }
-
-const url = `https://${ZENDESK_SUBDOMAIN}/api/v2/groups.json`;
 
 interface ZendeskGroup {
   id: number;
@@ -21,33 +23,254 @@ interface ZendeskResponse {
   groups: ZendeskGroup[];
 }
 
-fetch(url, {
-  headers: {
-    Authorization:
-      "Basic " +
-      Buffer.from(`${ZENDESK_USER_EMAIL}/token:${ZENDESK_API_TOKEN}`).toString(
-        "base64"
-      ),
-    "Content-Type": "application/json",
-  },
-})
-  .then((response: Response) => {
-    if (response.status !== 200) {
-      console.error(
-        `Status: ${response.status}, Problem with the request. Exiting.`
-      );
-      process.exit(1);
-    }
-    return response.json();
-  })
-  .then((data: ZendeskResponse) => {
-    console.log("First group = ", data.groups[0].name);
+const MAX_CONCURRENT_REQUESTS = 5;
+const RATE_LIMIT_DELAY = 1000; // 1 second delay between requests
+const MAX_RETRIES = 3;
+const BATCH_SIZE = 50;
+const BATCH_DELAY = 5000; // 5 seconds
 
-    data.groups.forEach((group) => {
-      console.log(group.name);
+const limit = pLimit(MAX_CONCURRENT_REQUESTS);
+
+function getOneYearAgo(): string {
+  const oneYearAgo = new Date();
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+  return oneYearAgo.toISOString();
+}
+
+async function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  retries = MAX_RETRIES
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (retries === 0) throw error;
+    await sleep(Math.pow(2, MAX_RETRIES - retries) * 1000);
+    return retryWithBackoff(fn, retries - 1);
+  }
+}
+
+async function rateLimitedRequest(
+  url: string,
+  options: RequestInit
+): Promise<Response> {
+  await sleep(RATE_LIMIT_DELAY);
+  return retryWithBackoff(() => fetch(url, options));
+}
+
+async function fetchTicketComments(ticketId: number): Promise<any[]> {
+  const url = `https://${ZENDESK_SUBDOMAIN}/api/v2/tickets/${ticketId}/comments.json`;
+
+  try {
+    const response = await rateLimitedRequest(url, {
+      headers: {
+        Authorization:
+          "Basic " +
+          Buffer.from(
+            `${ZENDESK_USER_EMAIL}/token:${ZENDESK_API_TOKEN}`
+          ).toString("base64"),
+        "Content-Type": "application/json",
+      },
     });
-  })
-  .catch((error: Error) => {
-    console.error("Error:", error.message);
-    process.exit(1);
-  });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.comments;
+  } catch (error) {
+    console.error(`Error fetching comments for ticket ${ticketId}:`, error);
+    return [];
+  }
+}
+
+async function fetchAllTickets(): Promise<any[]> {
+  const oneYearAgo = getOneYearAgo();
+  const url = `https://${ZENDESK_SUBDOMAIN}/api/v2/tickets.json?created_after=${oneYearAgo}`;
+  let allTickets: any[] = [];
+  let nextPage = url;
+
+  while (nextPage) {
+    const response = await rateLimitedRequest(nextPage, {
+      headers: {
+        Authorization:
+          "Basic " +
+          Buffer.from(
+            `${ZENDESK_USER_EMAIL}/token:${ZENDESK_API_TOKEN}`
+          ).toString("base64"),
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    allTickets = allTickets.concat(data.tickets);
+    nextPage = data.next_page;
+  }
+
+  return allTickets;
+}
+
+async function fetchRequestComments(requestId: number): Promise<any[]> {
+  const url = `https://${ZENDESK_SUBDOMAIN}/api/v2/requests/${requestId}/comments.json`;
+
+  try {
+    const response = await rateLimitedRequest(url, {
+      headers: {
+        Authorization:
+          "Basic " +
+          Buffer.from(
+            `${ZENDESK_USER_EMAIL}/token:${ZENDESK_API_TOKEN}`
+          ).toString("base64"),
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.comments;
+  } catch (error) {
+    console.error(`Error fetching comments for request ${requestId}:`, error);
+    return [];
+  }
+}
+
+async function fetchAllRequests(): Promise<any[]> {
+  const oneYearAgo = getOneYearAgo();
+  const url = `https://${ZENDESK_SUBDOMAIN}/api/v2/requests.json?created_after=${oneYearAgo}`;
+  let allRequests: any[] = [];
+  let nextPage = url;
+
+  while (nextPage) {
+    const response = await rateLimitedRequest(nextPage, {
+      headers: {
+        Authorization:
+          "Basic " +
+          Buffer.from(
+            `${ZENDESK_USER_EMAIL}/token:${ZENDESK_API_TOKEN}`
+          ).toString("base64"),
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    allRequests = allRequests.concat(data.requests);
+    nextPage = data.next_page;
+  }
+
+  return allRequests;
+}
+
+async function saveData(data: any, folderName: string, fileName: string) {
+  const folderPath = path.join(process.cwd(), folderName);
+  await fs.mkdir(folderPath, { recursive: true });
+
+  const filePath = path.join(folderPath, fileName);
+  await fs.writeFile(filePath, JSON.stringify(data, null, 2));
+
+  console.log(`Data written to ${filePath}`);
+}
+
+async function getTicketComments() {
+  try {
+    const tickets = await fetchAllTickets();
+    const allComments: { [key: number]: any[] } = {};
+
+    for (let i = 0; i < tickets.length; i += BATCH_SIZE) {
+      const batch = tickets.slice(i, i + BATCH_SIZE);
+
+      await Promise.all(
+        batch.map((ticket) =>
+          limit(async () => {
+            try {
+              const comments = await fetchTicketComments(ticket.id);
+              allComments[ticket.id] = comments;
+              console.log(`Comments for ticket ${ticket.id}:`, comments.length);
+            } catch (error) {
+              console.error(`Error processing ticket ${ticket.id}:`, error);
+            }
+          })
+        )
+      );
+
+      if (i + BATCH_SIZE < tickets.length) {
+        console.log(
+          `Processed ${i + BATCH_SIZE} tickets. Waiting before next batch...`
+        );
+        await sleep(BATCH_DELAY);
+      }
+    }
+
+    await saveData(allComments, "ticket_comments", "all_ticket_comments.json");
+    console.log("Finished processing all tickets");
+  } catch (error) {
+    console.error("Error in getTicketComments:", error);
+  }
+}
+
+async function getRequestComments() {
+  try {
+    const requests = await fetchAllRequests();
+    const allComments: { [key: number]: any[] } = {};
+
+    for (let i = 0; i < requests.length; i += BATCH_SIZE) {
+      const batch = requests.slice(i, i + BATCH_SIZE);
+
+      await Promise.all(
+        batch.map((request) =>
+          limit(async () => {
+            try {
+              const comments = await fetchRequestComments(request.id);
+              allComments[request.id] = comments;
+              console.log(
+                `Comments for request ${request.id}:`,
+                comments.length
+              );
+            } catch (error) {
+              console.error(`Error processing request ${request.id}:`, error);
+            }
+          })
+        )
+      );
+
+      if (i + BATCH_SIZE < requests.length) {
+        console.log(
+          `Processed ${i + BATCH_SIZE} requests. Waiting before next batch...`
+        );
+        await sleep(BATCH_DELAY);
+      }
+    }
+
+    await saveData(
+      allComments,
+      "request_comments",
+      "all_request_comments.json"
+    );
+    console.log("Finished processing all requests");
+  } catch (error) {
+    console.error("Error in getRequestComments:", error);
+  }
+}
+
+// Call the functions to retrieve and save data
+async function main() {
+  await getTicketComments();
+  await getRequestComments();
+}
+
+main();
