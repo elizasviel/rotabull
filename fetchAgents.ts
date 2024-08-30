@@ -58,7 +58,3 @@ async function getAllAgentIds(): Promise<number[]> {
     return [];
   }
 }
-
-getAllAgentIds().then((agentIds) => {
-  console.log("All agent IDs:", agentIds);
-});
