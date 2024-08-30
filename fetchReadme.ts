@@ -129,4 +129,4 @@ export async function fetchReadme() {
   }
 }
 
-//fetchReadme();
+fetchReadme();
