@@ -1,37 +1,8 @@
-import fetch, { Response } from "node-fetch";
-import type { RequestInit } from "node-fetch";
+import fetch from "node-fetch";
 
 const ZENDESK_API_TOKEN = process.env.ZENDESK_API_TOKEN;
 const ZENDESK_SUBDOMAIN = process.env.ZENDESK_SUBDOMAIN;
 const ZENDESK_USER_EMAIL = process.env.ZENDESK_USER_EMAIL;
-
-const MAX_RETRIES = 3;
-const RATE_LIMIT_DELAY = 1000;
-
-async function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function retryWithBackoff<T>(
-  fn: () => Promise<T>,
-  retries = MAX_RETRIES
-): Promise<T> {
-  try {
-    return await fn();
-  } catch (error) {
-    if (retries === 0) throw error;
-    await sleep(Math.pow(2, MAX_RETRIES - retries) * 1000);
-    return retryWithBackoff(fn, retries - 1);
-  }
-}
-
-async function rateLimitedRequest(
-  url: string,
-  options: RequestInit
-): Promise<Response> {
-  await sleep(RATE_LIMIT_DELAY);
-  return retryWithBackoff(() => fetch(url, options));
-}
 
 interface User {
   id: number;
@@ -40,6 +11,17 @@ interface User {
   active: boolean;
 }
 
+interface ZendeskResponse {
+  users: User[];
+  next_page: string | null;
+}
+
+/*
+https://developer.zendesk.com/api-reference/ticketing/users/users/#list-users
+Possible values for role are "end-user", "agent", or "admin".
+Fetches all agent and admin users.
+*/
+
 async function getAllAgentIds(): Promise<number[]> {
   const url = `https://${ZENDESK_SUBDOMAIN}/api/v2/users.json?role[]=agent&role[]=admin`;
   const allAgentIds: number[] = [];
@@ -47,7 +29,7 @@ async function getAllAgentIds(): Promise<number[]> {
 
   try {
     while (nextPage) {
-      const response = await rateLimitedRequest(nextPage, {
+      const response = await fetch(nextPage, {
         headers: {
           Authorization:
             "Basic " +
@@ -62,7 +44,7 @@ async function getAllAgentIds(): Promise<number[]> {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
+      const data: ZendeskResponse = await response.json();
       data.users.forEach((user: User) => {
         allAgentIds.push(user.id);
       });
