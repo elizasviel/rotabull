@@ -1,8 +1,8 @@
 import express from "express";
 import Anthropic from "@anthropic-ai/sdk";
 import cors from "cors";
-import fs from "fs/promises";
 import { startScheduledJobs } from "./scheduledJobs";
+import { PrismaClient } from "@prisma/client";
 
 interface Question {
   subject: string;
@@ -18,12 +18,19 @@ interface QuestionResponse {
 
 const anthropic = new Anthropic();
 const app = express();
+const prisma = new PrismaClient();
 
 app.use(express.json());
 app.use(cors());
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 2); //Rough estimate of tokens
+}
+
+function safeStringify(obj: any): string {
+  return JSON.stringify(obj, (_, value) =>
+    typeof value === "bigint" ? value.toString() : value
+  );
 }
 
 app.post("/suggest", async (req, res) => {
@@ -34,16 +41,16 @@ app.post("/suggest", async (req, res) => {
       return res.status(400).json({ error: "text_body is required" });
     }
 
-    const supportDocs = JSON.parse(
-      await fs.readFile("supportDocs.json", "utf-8")
-    );
-    let zendeskData = JSON.parse(
-      await fs.readFile("zendeskData.json", "utf-8")
-    );
+    const supportDocs = await prisma.supportDoc.findMany();
+    let zendeskData = await prisma.zendeskTicket.findMany({
+      include: {
+        comments: true,
+      },
+    });
 
     // Calculate the total tokens of the prompt
     const basePromptTokens =
-      estimateTokens(JSON.stringify(supportDocs)) +
+      estimateTokens(safeStringify(supportDocs)) +
       estimateTokens(subject) +
       estimateTokens(requester) +
       estimateTokens(text_body) +
@@ -53,7 +60,7 @@ app.post("/suggest", async (req, res) => {
 
     // Trim zendeskData if it's too long
     while (
-      estimateTokens(JSON.stringify(zendeskData)) > maxZendeskDataTokens &&
+      estimateTokens(safeStringify(zendeskData)) > maxZendeskDataTokens &&
       zendeskData.length > 0
     ) {
       zendeskData.pop(); // Remove the last item
@@ -70,9 +77,9 @@ app.post("/suggest", async (req, res) => {
           role: "user",
           content: [
             { type: "text", text: "Support Documentation:" },
-            { type: "text", text: JSON.stringify(supportDocs) },
+            { type: "text", text: safeStringify(supportDocs) },
             { type: "text", text: "Past Ticket Data:" },
-            { type: "text", text: JSON.stringify(zendeskData) },
+            { type: "text", text: safeStringify(zendeskData) },
             { type: "text", text: `Subject: ${subject}` },
             { type: "text", text: `Requester: ${requester}` },
             { type: "text", text: "User Query:" },
@@ -137,134 +144,14 @@ app.post("/suggest", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-startScheduledJobs();
+//startScheduledJobs();
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
 
-/*
-
-// constraints -- can't save to local file on disk
-// separatte out customer query from response. Double check comment chain
-// customers, internal notes, public replies
-// rag
-
-//lets implement zendesk and rag
-
-//What can I know about ticket comments?
-//I know the "submitter" is always the author of the first comment
-//A "submitter" is the person who submitted the ticket
-//This could be either an agent or a customer
-
-//We have the author id
-//We have "via", which tells us how the ticket was created
-//We know if the ticket was public or not (based on the )
-
-//We need to categorize the comments in a useful way
-//We need to categorize the comments so that the AI can know which comments are questions and which comments are answers
-//The first comment
-import { z } from "zod";
-
-const AnnotatedCommentSchema = z.object({
-  category: z.enum(["question", "answer", "note"]),
-  isSpam: z.boolean(),
-  isPublic: z.boolean(),
-  sensitiveData: z.boolean(),
-  whoIsTheAuthor: z.enum(["support", "customer", "engineer"]),
-  body: z.string(),
-  via: z.object({
-    channel: z.string(),
-  }),
-  zendeskData: z.record(z.unknown()), // remember to get all the data from zendesk
+// Graceful shutdown
+process.on("SIGINT", async () => {
+  await prisma.$disconnect();
+  process.exit();
 });
-
-type AnnotatedComment = z.infer<typeof AnnotatedCommentSchema>;
-
-const CommentAnnotationsSchema = z.object({
-  typeOfComment: z.enum(["question", "answer", "note"]),
-  isSpam: z
-    .boolean()
-    .describe(
-      "true if the comment is spam, useless, or harassment. Most of the time this is false."
-    ),
-  isPublic: z.boolean(), // and so on.
-  sensitiveData: z.boolean(),
-});
-
-//do rag on annoted comments in database
-//retrieval
-
-const database = [];
-
-// take in a zendesk comment and annotate it
-function annotateComment(comment: Comment, prompt?: string) {
-  const commentAnnotations = forge.CommentAnnotations.query(
-    "please accurately annotate the following comment"
-  );
-  const annotatedComment = {
-    ...commentAnnotations,
-    body: comment.body,
-    whoIsTheAuthor: whoIsTheAuthor(comment),
-    zendeskData: comment,
-  };
-  return annotatedComment;
-}
-
-// question is the zendesk ticket we are generating a response to
-// database is the annotated comments we have in the database
-// prompt is an additional optional prompt to help generate a useful response
-// filtering is for simple, fast filtering of the comments down to a smaller set
-// things like: is the comment spam, is the comment public, is the comment a question, is the comment an answer
-// this will get us down from 10,000 to maybe 100-1000 comments
-function filterRelevantComments(
-  question: AnnotatedComment,
-  database: AnnotatedComment[],
-  prompt?: string
-) {
-  //filter the database based on the comment
-  return database.filter((c) => c.body.includes(comment.body));
-}
-
-// OPTIONAL:
-// search is EVEN BETTER than retrieval, because it has exact keyword matching.
-// but it also sometimes comes up short, because there it might return nothing.
-// so we need both
-function searchRelevantComments(
-  question: AnnotatedComment,
-  database: AnnotatedComment[],
-  prompt?: string
-) {
-  // get keywords from the question
-  // search the database for comments with those same keywords
-}
-
-// retrieval is for more complex filtering of the comments down to an smaller set
-// this MIGHT use a vector embedding
-// ---> this is easiest, and do it first -- it also might just put all 100-1000 into context and ask for the top 10 along a specific axis
-// it also might use a for loop; so for instance it could loop through 10 at a time, and select the most helpful one, and then use a bracket
-// or it might loop through all 100 of them and give a score to each one and then select the top 10
-function retrieveRelevantComments(
-  question: AnnotatedComment,
-  database: AnnotatedComment[],
-  prompt?: string
-) {}
-
-function generateResponses(
-  question: AnnotatedComment,
-  relevantComments: AnnotatedComment[],
-  prompt?: string
-) {
-  // generate a response to the question four times and return all 4
-}
-
-function selectBestResponse(
-  question: AnnotatedComment,
-  relevantComments: AnnotatedComment[],
-  responses: string[],
-  prompt?: string
-) {
-  // select the best response based on the question, the relevant comments, and the prompt
-}
-
-*/

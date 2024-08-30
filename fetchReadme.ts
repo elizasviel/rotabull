@@ -1,6 +1,5 @@
 import fetch from "node-fetch";
-import fs from "fs/promises";
-import path from "path";
+import { PrismaClient } from "@prisma/client";
 
 // Includes Guides from v1.1
 
@@ -22,6 +21,8 @@ interface Category {
 
 const README_API_TOKEN = process.env.README_API_TOKEN;
 const BASE_URL = "https://dash.readme.com/api/v1";
+
+const prisma = new PrismaClient();
 
 async function fetchPages() {
   let allPages: { slug: string; body: string }[] = [];
@@ -103,13 +104,29 @@ async function fetchDocContent(
 export async function fetchReadme() {
   const pages = await fetchPages();
 
-  const fileName = "supportDocs.json";
-  const filePath = path.join(process.cwd(), fileName);
-
   try {
-    await fs.writeFile(filePath, JSON.stringify(pages, null, 2), "utf-8");
-    console.log(`Readme data has been written to ${filePath}`);
+    // Use a transaction to ensure all operations succeed or fail together
+    await prisma.$transaction(async (tx) => {
+      // Clear existing SupportDoc entries
+      await tx.supportDoc.deleteMany();
+
+      // Insert new SupportDoc entries
+      for (const page of pages) {
+        await tx.supportDoc.create({
+          data: {
+            slug: page.slug,
+            body: page.body,
+          },
+        });
+      }
+    });
+
+    console.log(`Readme data has been written to the database`);
   } catch (error) {
-    console.error("Error writing readme data to file:", error);
+    console.error("Error writing readme data to database:", error);
+  } finally {
+    await prisma.$disconnect();
   }
 }
+
+//fetchReadme();

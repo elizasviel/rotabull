@@ -1,8 +1,7 @@
 import fetch, { Response } from "node-fetch";
 import type { RequestInit } from "node-fetch";
-import fs from "fs/promises";
-import path from "path";
 import pLimit from "p-limit";
+import { PrismaClient } from "@prisma/client";
 
 const ZENDESK_API_TOKEN = process.env.ZENDESK_API_TOKEN;
 const ZENDESK_SUBDOMAIN = process.env.ZENDESK_SUBDOMAIN;
@@ -20,6 +19,7 @@ const BATCH_SIZE = 50;
 const BATCH_DELAY = 5000;
 
 const limit = pLimit(MAX_CONCURRENT_REQUESTS);
+const prisma = new PrismaClient();
 
 function getOneYearAgo(): string {
   const oneYearAgo = new Date();
@@ -114,52 +114,67 @@ async function fetchAllTickets(): Promise<any[]> {
 export async function fetchZendesk() {
   try {
     const tickets = await fetchAllTickets();
-    const allComments: { [key: number]: any[] } = {};
 
-    for (let i = 0; i < tickets.length; i += BATCH_SIZE) {
-      const batch = tickets.slice(i, i + BATCH_SIZE);
+    await prisma.$transaction(
+      async (tx) => {
+        // Clear existing ZendeskTicket and ZendeskTicketComment entries
+        await tx.zendeskTicketComment.deleteMany();
+        await tx.zendeskTicket.deleteMany();
 
-      await Promise.all(
-        batch.map((ticket) =>
-          limit(async () => {
-            try {
-              const comments = await fetchTicketComments(ticket.id);
-              allComments[ticket.id] = comments;
-              console.log(`Comments for ticket ${ticket.id}:`, comments.length);
-            } catch (error) {
-              console.error(`Error processing ticket ${ticket.id}:`, error);
-            }
-          })
-        )
-      );
+        for (let i = 0; i < tickets.length; i += BATCH_SIZE) {
+          const batch = tickets.slice(i, i + BATCH_SIZE);
 
-      if (i + BATCH_SIZE < tickets.length) {
-        console.log(
-          `Processed ${i + BATCH_SIZE} tickets. Waiting before next batch...`
-        );
-        await sleep(BATCH_DELAY);
+          await Promise.all(
+            batch.map((ticket) =>
+              limit(async () => {
+                try {
+                  const comments = await fetchTicketComments(ticket.id);
+
+                  const createdTicket = await tx.zendeskTicket.create({
+                    data: {
+                      ticketNumber: ticket.id.toString(),
+                    },
+                  });
+
+                  await tx.zendeskTicketComment.createMany({
+                    data: comments.map((comment) => ({
+                      plainBody: comment.plain_body,
+                      authorId: comment.author_id,
+                      zendeskTicketId: createdTicket.id,
+                    })),
+                  });
+
+                  console.log(
+                    `Processed ticket ${ticket.id} with ${comments.length} comments`
+                  );
+                } catch (error) {
+                  console.error(`Error processing ticket ${ticket.id}:`, error);
+                }
+              })
+            )
+          );
+
+          if (i + BATCH_SIZE < tickets.length) {
+            console.log(
+              `Processed ${
+                i + BATCH_SIZE
+              } tickets. Waiting before next batch...`
+            );
+            await sleep(BATCH_DELAY);
+          }
+        }
+      },
+      {
+        timeout: 1200000, // Increase timeout to 1200 seconds
       }
-    }
-
-    // Process the data
-    const extractedData = Object.entries(allComments).map(
-      ([ticketNumber, comments]) => ({
-        ticketNumber,
-        comments: comments.map((comment: any) => ({
-          plain_body: comment.plain_body,
-          author_id: comment.author_id,
-        })),
-      })
     );
 
-    // Write the processed data to a file in the current directory
-    const outputPath = path.join(process.cwd(), "zendeskData.json");
-    await fs.writeFile(outputPath, JSON.stringify(extractedData, null, 2));
-
-    console.log(`Extracted data has been written to ${outputPath}`);
+    console.log("Zendesk data has been written to the database");
   } catch (error) {
     console.error("Error in fetchZendesk:", error);
+  } finally {
+    await prisma.$disconnect();
   }
 }
 
-fetchZendesk();
+//fetchZendesk();
