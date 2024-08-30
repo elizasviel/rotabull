@@ -72,7 +72,10 @@ async function fetchTicketComments(ticketId: number): Promise<any[]> {
     }
 
     const data = await response.json();
-    return data.comments;
+    return data.comments.map((comment: any) => ({
+      plain_body: comment.plain_body,
+      author_id: comment.author_id,
+    }));
   } catch (error) {
     console.error(`Error fetching comments for ticket ${ticketId}:`, error);
     return [];
@@ -142,7 +145,10 @@ export async function fetchZendesk() {
     const extractedData = Object.entries(allComments).map(
       ([ticketNumber, comments]) => ({
         ticketNumber,
-        plainBodies: comments.map((comment: any) => comment.plain_body),
+        comments: comments.map((comment: any) => ({
+          plain_body: comment.plain_body,
+          author_id: comment.author_id,
+        })),
       })
     );
 
@@ -155,3 +161,5 @@ export async function fetchZendesk() {
     console.error("Error in fetchZendesk:", error);
   }
 }
+
+fetchZendesk();
