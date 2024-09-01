@@ -33,6 +33,13 @@ function safeStringify(obj: any): string {
   );
 }
 
+async function fetchAgentIds() {
+  const agents = await prisma.zendeskUser.findMany({
+    select: { id: true },
+  });
+  return new Set(agents.map((user) => BigInt(user.id)));
+}
+
 const supportDocs = await prisma.supportDoc.findMany();
 let zendeskData = await prisma.zendeskTicket.findMany({
   include: {
@@ -47,6 +54,8 @@ app.post("/suggest", async (req, res) => {
     if (!text_body) {
       return res.status(400).json({ error: "text_body is required" });
     }
+
+    const agentIds = await fetchAgentIds();
 
     // Calculate the total tokens of the prompt
     const basePromptTokens =
@@ -66,12 +75,28 @@ app.post("/suggest", async (req, res) => {
       zendeskData.pop(); // Remove the last item
     }
 
+    // Categorize comments
+    const categorizedZendeskData = zendeskData.map((ticket) => ({
+      ...ticket,
+      comments: ticket.comments.map((comment) => ({
+        ...comment,
+        isTeamComment: agentIds.has(BigInt(comment.authorId)),
+      })),
+    }));
+
+    categorizedZendeskData.forEach((ticket) => {
+      ticket.comments.forEach((comment) => {
+        console.log(comment.isTeamComment);
+      });
+    });
+
+    /*
     const msg = await anthropic.messages.create({
       model: "claude-3-5-sonnet-20240620",
       max_tokens: 1000,
       temperature: 0.3,
       top_p: 0.9,
-      system: `You are a knowledgeable customer support assistant for rotabull. Your task is to provide accurate, helpful, and concise responses to user queries. Use the provided support documentation and past ticket data to inform your answers. Always maintain a professional and friendly tone. If you're unsure about something, it's okay to say so rather than guessing. Prioritize the most relevant information from the support docs and past tickets to address the user's specific query. Your response should be in JSON format with 'suggested_articles' and 'suggested_response' fields.`,
+      system: `You are a knowledgeable customer support assistant for rotabull. Your task is to provide accurate, helpful, and concise responses to user queries. Use the provided support documentation and past ticket data to inform your answers. Always maintain a professional and friendly tone. If you're unsure about something, it's okay to say so rather than guessing. Prioritize the most relevant information from the support docs and past tickets to address the user's specific query. Pay attention to whether comments are from the team or external sources. Your response should be in JSON format with 'suggested_articles' and 'suggested_response' fields.`,
       messages: [
         {
           role: "user",
@@ -79,7 +104,7 @@ app.post("/suggest", async (req, res) => {
             { type: "text", text: "Support Documentation:" },
             { type: "text", text: safeStringify(supportDocs) },
             { type: "text", text: "Past Ticket Data:" },
-            { type: "text", text: safeStringify(zendeskData) },
+            { type: "text", text: safeStringify(categorizedZendeskData) },
             { type: "text", text: `Subject: ${subject}` },
             { type: "text", text: `Requester: ${requester}` },
             { type: "text", text: "User Query:" },
@@ -90,7 +115,7 @@ app.post("/suggest", async (req, res) => {
             },
             {
               type: "text",
-              text: "Instructions: Analyze the user query and provide a concise, helpful response. Reference relevant support documentation or past ticket data if applicable. Format your response as a JSON object with 'suggested_articles' (an array of relevant article URLs) and 'suggested_response' (a string containing the response) fields.",
+              text: "Instructions: Analyze the user query and provide a concise, helpful response. Reference relevant support documentation or past ticket data if applicable. Pay special attention to comments marked as 'isTeamComment: true' as these are from the support team. Format your response as a JSON object with 'suggested_articles' (an array of relevant article URLs) and 'suggested_response' (a string containing the response) fields.",
             },
           ],
         },
@@ -134,6 +159,7 @@ app.post("/suggest", async (req, res) => {
     }
 
     res.json(response);
+    */
   } catch (error) {
     console.error("Error in /suggest endpoint:", error);
     res

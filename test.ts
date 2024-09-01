@@ -5,8 +5,9 @@ async function testSuggestEndpoint() {
   const data = {
     subject: "Test Subject",
     requester: "test@example.com",
-    text_body: "How do I reset my password?",
-    html_body: "<p>How do I reset my password?</p>",
+    text_body: "ILS integration not working",
+    html_body:
+      "<p>Hello, Were having trouble with our ILS integration. We have had many requests via ILS, but they haven't been showing up in Rotabull for at least a week. Do you have any idea why this might be happening? I think that we may be logged into the account elsewhere. Should Rotabull be able to use the same account that we use manually to access the ILS API? Or is there some other reason that we're not seeing our ILS data in Rotabull? Thanks, ~Richard</p>",
   };
 
   try {
