@@ -133,13 +133,14 @@ export async function fetchZendesk() {
                   const createdTicket = await tx.zendeskTicket.create({
                     data: {
                       ticketNumber: ticket.id.toString(),
+                      submitterId: BigInt(ticket.submitter_id),
                     },
                   });
 
                   await tx.zendeskTicketComment.createMany({
                     data: comments.map((comment) => ({
                       plainBody: comment.plain_body,
-                      authorId: comment.author_id,
+                      authorId: BigInt(comment.author_id),
                       zendeskTicketId: createdTicket.id,
                     })),
                   });
@@ -178,3 +179,6 @@ export async function fetchZendesk() {
 }
 
 fetchZendesk();
+
+//There are some tickets with submitter IDs that could not be found in the users table.
+//This may be because some user ids were not fetched, or the IDs may have been dropped or mutated

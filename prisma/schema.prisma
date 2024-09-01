@@ -17,6 +17,7 @@ model ZendeskTicket {
   id           Int                    @id @default(autoincrement())
   ticketNumber String                 @unique
   comments     ZendeskTicketComment[]
+  submitterId  BigInt
 }
 
 model ZendeskTicketComment {
@@ -26,3 +27,17 @@ model ZendeskTicketComment {
   zendeskTicket   ZendeskTicket @relation(fields: [zendeskTicketId], references: [id])
   zendeskTicketId Int
 }
+
+model ZendeskUser {
+  id        BigInt   @id @unique
+  email     String   @unique
+  role      String
+  active    Boolean
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+//No submitterID relationship between ZendeskTicket and ZendeskUser  
+//No authorID relationship between ZendeskTicketComment and ZendeskUser
+//There is no guarantee from the API documentation that all ZendeskTicket submitterIDs will be valid ZendeskUser IDs
+//There is no guarantee from the API documentation that all ZendeskTicketComment authorIDs will be valid ZendeskUser IDs
