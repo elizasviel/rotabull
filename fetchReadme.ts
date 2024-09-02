@@ -1,5 +1,6 @@
 import fetch from "node-fetch";
 import { PrismaClient } from "@prisma/client";
+import forge from "./forge/client";
 
 // Includes Guides from v1.1
 
@@ -102,7 +103,40 @@ async function fetchDocContent(
 }
 
 export async function fetchReadme() {
+  //Delete the old collection in Forge and postgres db
+  await forge.$collections.delete("readme1", { deleteDocuments: true });
+  await prisma.forgeDocsCollection.deleteMany();
+
+  //create a new collection in Forge
+  const collection = await forge.$collections.create({
+    name: "readme1",
+  });
+
+  //Fetch the pages from the readme api
   const pages = await fetchPages();
+
+  //Create documents in Forge
+  try {
+    for (const page of pages) {
+      console.log("CREATING DOCUMENT IN FORGE", page.slug);
+      await forge.$documents.create({
+        name: page.slug,
+        text:
+          "https://support.rotabull.com/docs/" + page.slug + "\n\n" + page.body,
+        collectionIds: [collection.id],
+      });
+    }
+  } catch (error) {
+    console.error("Error creating documents in Forge:", error);
+  }
+
+  //Store collection id and name in postgres
+  await prisma.forgeDocsCollection.create({
+    data: {
+      forgeId: collection.id,
+      name: collection.name,
+    },
+  });
 
   try {
     // Use a transaction to ensure all operations succeed or fail together

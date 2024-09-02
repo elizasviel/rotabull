@@ -7,6 +7,18 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model ForgeTicketCollection {
+  id      Int    @id @default(autoincrement())
+  forgeId String @unique
+  name    String
+}
+
+model ForgeDocsCollection {
+  id      Int    @id @default(autoincrement())
+  forgeId String @unique
+  name    String
+}
+
 model SupportDoc {
   id   Int    @id @default(autoincrement())
   slug String @unique
