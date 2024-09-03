@@ -1,6 +1,5 @@
 import fetch, { Response } from "node-fetch";
 import type { RequestInit } from "node-fetch";
-import pLimit from "p-limit";
 import { PrismaClient } from "@prisma/client";
 import forge from "./forge/client";
 
@@ -13,13 +12,9 @@ if (!ZENDESK_API_TOKEN) {
   process.exit(1);
 }
 
-const MAX_CONCURRENT_REQUESTS = 5;
 const RATE_LIMIT_DELAY = 1000;
 const MAX_RETRIES = 3;
-const BATCH_SIZE = 50;
-const BATCH_DELAY = 5000;
 
-const limit = pLimit(MAX_CONCURRENT_REQUESTS);
 const prisma = new PrismaClient();
 
 function getOneYearAgo(): string {
@@ -126,12 +121,12 @@ async function fetchAllTickets(): Promise<any[]> {
 export async function fetchZendesk() {
   try {
     //Delete the old collection in Forge and postgres db
-    await forge.$collections.delete("zendeskTicketComment1");
+    await forge.$collections.delete("zendeskTicketComment");
     await prisma.forgeTicketCollection.deleteMany();
 
     //create a new collection in Forge
     const collection = await forge.$collections.create({
-      name: "zendeskTicketComment1",
+      name: "zendeskTicketComment",
     });
 
     //Whenever I fetchZendesk, I want to create a new collection in Forge
