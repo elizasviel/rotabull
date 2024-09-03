@@ -24,7 +24,7 @@ async function testSuggestEndpoint() {
     }
 
     const result = await response.json();
-    console.log("Suggestion result:", result);
+    console.log(result);
   } catch (error) {
     console.error("Error testing suggest endpoint:", error);
   }
