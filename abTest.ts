@@ -41,7 +41,7 @@ app.post("/suggest", async (req, res) => {
       }
     );
 
-    console.log("slug1", slug1.response);
+    console.log("slug1", slug1);
 
     const slug2 = await forge.$withContext(
       `Here are all the URL slugs of existing Rotabull support articles: ` +
@@ -55,7 +55,7 @@ app.post("/suggest", async (req, res) => {
       }
     );
 
-    console.log("slug2", slug2.response);
+    console.log("slug2", slug2);
 
     // Method A: Support docs first, then Zendesk tickets
     const initialResponseA = await forge.$withContext(
