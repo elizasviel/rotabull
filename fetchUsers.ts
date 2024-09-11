@@ -49,12 +49,14 @@ async function fetchAndStoreUsers(): Promise<void> {
             email: user.email || "",
             role: user.role,
             active: user.active,
+            lastUpdated: new Date().toISOString(),
           },
           create: {
             id: BigInt(user.id),
             email: user.email || "",
             role: user.role,
             active: user.active,
+            lastUpdated: new Date().toISOString(),
           },
         });
       }

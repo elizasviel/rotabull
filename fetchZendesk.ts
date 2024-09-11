@@ -14,14 +14,7 @@ if (!ZENDESK_API_TOKEN) {
 
 const RATE_LIMIT_DELAY = 1000;
 const MAX_RETRIES = 3;
-
 const prisma = new PrismaClient();
-
-function getOneYearAgo(): string {
-  const oneYearAgo = new Date();
-  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-  return oneYearAgo.toISOString();
-}
 
 async function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -65,13 +58,12 @@ async function fetchTicketComments(ticketId: number): Promise<any[]> {
       })
     );
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        const retryAfter = response.headers.get("Retry-After");
-        console.log(`Rate limited. Retrying after ${retryAfter} seconds.`);
-        await sleep(parseInt(retryAfter || "60") * 1000);
-        return fetchTicketComments(ticketId);
-      }
+    if (response.status === 429) {
+      const retryAfter = response.headers.get("Retry-After");
+      console.log(`Rate limited. Retrying after ${retryAfter} seconds.`);
+      await sleep(parseInt(retryAfter || "60") * 1000);
+      return fetchTicketComments(ticketId);
+    } else if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
@@ -80,6 +72,8 @@ async function fetchTicketComments(ticketId: number): Promise<any[]> {
     return data.comments.map((comment: any) => ({
       plain_body: comment.plain_body,
       author_id: comment.author_id,
+      public: comment.public,
+      created_at: comment.created_at,
     }));
   } catch (error) {
     console.error(`Error fetching comments for ticket ${ticketId}:`, error);
@@ -88,31 +82,55 @@ async function fetchTicketComments(ticketId: number): Promise<any[]> {
 }
 
 async function fetchAllTickets(): Promise<any[]> {
-  const oneYearAgo = getOneYearAgo();
-  let nextPage = `https://${ZENDESK_SUBDOMAIN}/api/v2/tickets.json?created_after=${oneYearAgo}&per_page=100`;
+  const oneYearAgo = Math.floor(Date.now() / 1000) - 365 * 24 * 60 * 60;
+  let startTime = oneYearAgo.toString();
   let allTickets: any[] = [];
 
-  while (nextPage) {
-    const response = await rateLimitedRequest(nextPage, {
-      headers: {
-        Authorization:
-          "Basic " +
-          Buffer.from(
-            `${ZENDESK_USER_EMAIL}/token:${ZENDESK_API_TOKEN}`
-          ).toString("base64"),
-        "Content-Type": "application/json",
-      },
-    });
+  while (true) {
+    const url = `https://${ZENDESK_SUBDOMAIN}/api/v2/incremental/tickets.json?start_time=${startTime}&per_page=100`;
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    try {
+      const response = await rateLimitedRequest(url, {
+        headers: {
+          Authorization:
+            "Basic " +
+            Buffer.from(
+              `${ZENDESK_USER_EMAIL}/token:${ZENDESK_API_TOKEN}`
+            ).toString("base64"),
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.status === 429) {
+        const retryAfter = parseInt(
+          response.headers.get("Retry-After") || "60"
+        );
+        console.log(`Rate limited. Retrying after ${retryAfter} seconds.`);
+        await sleep(retryAfter * 1000);
+        continue; // Retry the same request without changing startTime
+      } else if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log("DATA", data);
+      // Filter out deleted tickets
+      const nonDeletedTickets = data.tickets.filter(
+        (ticket: any) => ticket.status !== "deleted"
+      );
+      allTickets = allTickets.concat(nonDeletedTickets);
+
+      console.log(`Fetched ${data.count} tickets. Total: ${allTickets.length}`);
+
+      if (data.end_of_stream) {
+        break; // No more pages to fetch
+      }
+
+      startTime = data.end_time;
+    } catch (error) {
+      console.error("Error fetching tickets:", error);
+      await sleep(5000); // Wait for 5 seconds before retrying
     }
-
-    const data = await response.json();
-    allTickets = allTickets.concat(data.tickets);
-    nextPage = data.next_page;
-
-    console.log(`Fetched ${allTickets.length} tickets so far...`);
   }
 
   return allTickets;
@@ -134,6 +152,7 @@ export async function fetchZendesk() {
       data: {
         forgeId: collection.id,
         name: collection.name,
+        lastUpdated: new Date().toISOString(),
       },
     });
 
@@ -156,58 +175,88 @@ export async function fetchZendesk() {
     //Fetch all the tickets
     const tickets = await fetchAllTickets();
 
+    //Remove duplicates from the tickets array
+    const uniqueTickets = tickets.filter(
+      (ticket, index, self) =>
+        index === self.findIndex((t) => t.id === ticket.id)
+    );
+    console.log("UNIQUE TICKETS", uniqueTickets.length);
+    console.log(
+      "Ticket IDs:",
+      uniqueTickets.map((ticket) => ({
+        id: ticket.id,
+      }))
+    );
+
     // Clear existing ZendeskTicket and ZendeskTicketComment entries
     await prisma.zendeskTicketComment.deleteMany();
     await prisma.zendeskTicket.deleteMany();
 
-    //Perform operations on each ticket
-    for (const ticket of tickets) {
-      //First, fetch the array of comments for each ticket
-      const comments = await fetchTicketComments(ticket.id);
-      console.log("FETCHED TICKET COMMENTS", ticket.id);
+    // Process tickets in batches
+    const BATCH_SIZE = 500;
+    for (let i = 0; i < uniqueTickets.length; i += BATCH_SIZE) {
+      const ticketBatch = uniqueTickets.slice(i, i + BATCH_SIZE);
 
-      //Next, annotate each comment by adding a prefix if the author ID is in the userIds array
-      comments.forEach((comment: any) => {
-        if (userIds.includes(comment.author_id)) {
-          comment.plain_body = "ROTABULL TEAM COMMENT\n\n" + comment.plain_body;
+      await prisma.$transaction(
+        async (tx) => {
+          for (const ticket of ticketBatch) {
+            const comments = await fetchTicketComments(ticket.id);
+            console.log("FETCHED TICKET COMMENTS", ticket.id);
+
+            //Annotate each comment
+            comments.forEach((comment: any) => {
+              if (userIds.includes(comment.author_id)) {
+                comment.plain_body =
+                  "ROTABULL TEAM COMMENT\n\n" + comment.plain_body;
+              }
+              if (!comment.public) {
+                comment.plain_body = "INTERNAL NOTE\n\n" + comment.plain_body;
+              } else {
+                comment.plain_body = "PUBLIC COMMENT\n\n" + comment.plain_body;
+              }
+            });
+
+            //Upload the comments to Forge
+            await forge.$documents.create({
+              name: ticket.id.toString(),
+              text: JSON.stringify(comments),
+              collectionIds: [collection.id],
+            });
+            console.log("CREATED DOCUMENT IN FORGE", ticket.id);
+
+            try {
+              const createdTicket = await tx.zendeskTicket.create({
+                data: {
+                  ticketNumber: ticket.id.toString(),
+                  submitterId: BigInt(ticket.submitter_id),
+                  created_at: ticket.created_at,
+                },
+              });
+
+              await tx.zendeskTicketComment.createMany({
+                data: comments.map((comment) => ({
+                  plainBody: comment.plain_body,
+                  authorId: BigInt(comment.author_id),
+                  zendeskTicketId: createdTicket.id,
+                  public: comment.public,
+                  created_at: comment.created_at,
+                })),
+              });
+
+              console.log(
+                `Processed ticket ${ticket.id} with ${comments.length} comments`
+              );
+            } catch (error) {
+              console.error(`Error processing ticket ${ticket.id}:`, error);
+            }
+          }
+        },
+        {
+          timeout: 9000000, // Increase timeout to 15 minutes
         }
-      });
+      );
 
-      //Then, upload the array of comments as a single document in Forge
-      await forge.$documents.create({
-        name: ticket.id.toString(),
-        text: JSON.stringify(comments),
-        collectionIds: [collection.id],
-      });
-      console.log("CREATED DOCUMENT IN FORGE", ticket.id);
-
-      //Finally, write the ticket and comment info to the postgres db
-      await prisma.$transaction(async (tx) => {
-        try {
-          //Create the ticket
-          const createdTicket = await tx.zendeskTicket.create({
-            data: {
-              ticketNumber: ticket.id.toString(),
-              submitterId: BigInt(ticket.submitter_id),
-            },
-          });
-
-          //Create the comments
-          await tx.zendeskTicketComment.createMany({
-            data: comments.map((comment) => ({
-              plainBody: comment.plain_body,
-              authorId: BigInt(comment.author_id),
-              zendeskTicketId: createdTicket.id,
-            })),
-          });
-
-          console.log(
-            `Processed ticket ${ticket.id} with ${comments.length} comments`
-          );
-        } catch (error) {
-          console.error(`Error processing ticket ${ticket.id}:`, error);
-        }
-      });
+      console.log(`Processed batch of ${ticketBatch.length} tickets`);
     }
   } catch (error) {
     console.error("Error in fetchZendesk:", error);

@@ -2,20 +2,35 @@ import cron from "node-cron";
 import { fetchReadme } from "./fetchReadme";
 import { fetchZendesk } from "./fetchZendesk";
 import { fetchAndStoreUsers } from "./fetchUsers";
-//This script runs every Sunday at 00:00 to update the support data from Zendesk and Readme.
 
 async function updateSupportData() {
+  console.log(`[${new Date().toISOString()}] Starting support data update`);
   try {
-    await fetchReadme();
-    await fetchZendesk();
+    console.log("Fetching and storing users...");
+    //always fetch users first
     await fetchAndStoreUsers();
+    console.log("Fetching Readme data...");
+    await fetchReadme();
+    console.log("Fetching Zendesk data...");
+    await fetchZendesk();
 
-    console.log("Support data updated successfully");
+    console.log(
+      `[${new Date().toISOString()}] Support data updated successfully`
+    );
   } catch (error) {
-    console.error("Error updating support data:", error);
+    console.error(
+      `[${new Date().toISOString()}] Error updating support data:`,
+      error
+    );
   }
 }
 
 export function startScheduledJobs() {
+  // Run every minute for testing purposes
+  // cron.schedule("* * * * *", updateSupportData);
+
+  // Weekly schedule
   cron.schedule("0 0 * * 0", updateSupportData);
+
+  console.log("Scheduled jobs started");
 }
