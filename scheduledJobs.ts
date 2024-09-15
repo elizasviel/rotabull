@@ -1,6 +1,6 @@
 import cron from "node-cron";
 import { fetchReadme } from "./fetchReadme";
-import { fetchZendesk } from "./fetchZendesk";
+import { fetchTickets } from "./fetchTickets";
 import { fetchAndStoreUsers } from "./fetchUsers";
 
 async function updateSupportData() {
@@ -12,7 +12,7 @@ async function updateSupportData() {
     console.log("Fetching Readme data...");
     await fetchReadme();
     console.log("Fetching Zendesk data...");
-    await fetchZendesk();
+    await fetchTickets();
 
     console.log(
       `[${new Date().toISOString()}] Support data updated successfully`
