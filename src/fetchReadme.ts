@@ -1,6 +1,6 @@
 import fetch from "node-fetch";
 import { PrismaClient } from "@prisma/client";
-import forge from "./forge/client";
+import forge from "../forge/client";
 
 // Includes Guides from v1.1
 
@@ -164,5 +164,3 @@ export async function fetchReadme() {
     await prisma.$disconnect();
   }
 }
-
-fetchReadme();

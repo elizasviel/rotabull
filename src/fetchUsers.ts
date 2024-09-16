@@ -73,5 +73,3 @@ async function fetchAndStoreUsers(): Promise<void> {
 }
 
 export { fetchAndStoreUsers };
-
-fetchAndStoreUsers();
