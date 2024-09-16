@@ -202,6 +202,3 @@ export async function fetchTickets() {
     }
   }
 }
-
-// Run the main function
-fetchTickets();
