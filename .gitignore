@@ -176,3 +176,5 @@ dist
 
 /supportDocs.json
 /zendeskData.json
+/ab_test_results.json
+/testresults.json

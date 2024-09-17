@@ -7,46 +7,53 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+//Reference to the collection in Forge
 model ForgeTicketCollection {
-  id      Int    @id @default(autoincrement())
-  forgeId String @unique
-  name    String
+  id          Int    @id @default(autoincrement())
+  forgeId     String @unique
+  name        String
+  lastUpdated String //Date this object was last updated in the database
 }
 
+//Reference to the collection in Forge
 model ForgeDocsCollection {
-  id      Int    @id @default(autoincrement())
-  forgeId String @unique
-  name    String
+  id          Int    @id @default(autoincrement())
+  forgeId     String @unique
+  name        String
+  lastUpdated String //Date this object was last updated in the database
 }
 
 model SupportDoc {
-  id   Int    @id @default(autoincrement())
-  slug String @unique
-  body String
+  id          Int    @id @default(autoincrement())
+  slug        String @unique
+  body        String
+  lastUpdated String //Date this object was last updated in the database
 }
 
 model ZendeskTicket {
   id           Int                    @id @default(autoincrement())
   ticketNumber String                 @unique
+  created_at   String //Date this ticket was created in Zendesk
   comments     ZendeskTicketComment[]
   submitterId  BigInt
 }
 
 model ZendeskTicketComment {
   id              Int           @id @default(autoincrement())
+  created_at      String //Date this comment was created in Zendesk
   plainBody       String
   authorId        BigInt
   zendeskTicket   ZendeskTicket @relation(fields: [zendeskTicketId], references: [id])
   zendeskTicketId Int
+  public          Boolean //true if a public comment; false if an internal note
 }
 
 model ZendeskUser {
-  id        BigInt   @id @unique
-  email     String   @unique
-  role      String
-  active    Boolean
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          BigInt   @id @unique
+  email       String   @unique
+  role        String
+  active      Boolean
+  lastUpdated DateTime @updatedAt //Date this object was last updated in the database
 }
 
 //No submitterID relationship between ZendeskTicket and ZendeskUser  

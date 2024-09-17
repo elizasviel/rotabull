@@ -3,6 +3,7 @@ CREATE TABLE "ForgeTicketCollection" (
     "id" SERIAL NOT NULL,
     "forgeId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
+    "lastUpdated" TEXT NOT NULL,
 
     CONSTRAINT "ForgeTicketCollection_pkey" PRIMARY KEY ("id")
 );
@@ -12,6 +13,7 @@ CREATE TABLE "ForgeDocsCollection" (
     "id" SERIAL NOT NULL,
     "forgeId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
+    "lastUpdated" TEXT NOT NULL,
 
     CONSTRAINT "ForgeDocsCollection_pkey" PRIMARY KEY ("id")
 );
@@ -21,6 +23,7 @@ CREATE TABLE "SupportDoc" (
     "id" SERIAL NOT NULL,
     "slug" TEXT NOT NULL,
     "body" TEXT NOT NULL,
+    "lastUpdated" TEXT NOT NULL,
 
     CONSTRAINT "SupportDoc_pkey" PRIMARY KEY ("id")
 );
@@ -29,6 +32,7 @@ CREATE TABLE "SupportDoc" (
 CREATE TABLE "ZendeskTicket" (
     "id" SERIAL NOT NULL,
     "ticketNumber" TEXT NOT NULL,
+    "created_at" TEXT NOT NULL,
     "submitterId" BIGINT NOT NULL,
 
     CONSTRAINT "ZendeskTicket_pkey" PRIMARY KEY ("id")
@@ -37,9 +41,11 @@ CREATE TABLE "ZendeskTicket" (
 -- CreateTable
 CREATE TABLE "ZendeskTicketComment" (
     "id" SERIAL NOT NULL,
+    "created_at" TEXT NOT NULL,
     "plainBody" TEXT NOT NULL,
     "authorId" BIGINT NOT NULL,
     "zendeskTicketId" INTEGER NOT NULL,
+    "public" BOOLEAN NOT NULL,
 
     CONSTRAINT "ZendeskTicketComment_pkey" PRIMARY KEY ("id")
 );
@@ -50,8 +56,7 @@ CREATE TABLE "ZendeskUser" (
     "email" TEXT NOT NULL,
     "role" TEXT NOT NULL,
     "active" BOOLEAN NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "lastUpdated" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "ZendeskUser_pkey" PRIMARY KEY ("id")
 );

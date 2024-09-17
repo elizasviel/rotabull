@@ -1,6 +1,6 @@
 import fetch from "node-fetch";
 import { PrismaClient } from "@prisma/client";
-import forge from "./forge/client";
+import forge from "../forge/client";
 
 // Includes Guides from v1.1
 
@@ -133,6 +133,7 @@ export async function fetchReadme() {
   //Store collection id and name in postgres
   await prisma.forgeDocsCollection.create({
     data: {
+      lastUpdated: new Date().toISOString(),
       forgeId: collection.id,
       name: collection.name,
     },
@@ -148,6 +149,7 @@ export async function fetchReadme() {
       for (const page of pages) {
         await tx.supportDoc.create({
           data: {
+            lastUpdated: new Date().toISOString(),
             slug: page.slug,
             body: page.body,
           },
@@ -162,5 +164,3 @@ export async function fetchReadme() {
     await prisma.$disconnect();
   }
 }
-
-fetchReadme();
