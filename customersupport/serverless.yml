@@ -1,5 +1,5 @@
 # "org" ensures this Service is used with the correct Serverless Framework Access Key.
-org: normanqian
+org: normanrotabull
 # "app" enables Serverless Framework Dashboard features and sharing them with other Services.
 app: customersupport
 # "service" is the name of this project. This will also be added to your AWS resource names.
@@ -11,6 +11,10 @@ provider:
 
 functions:
   api:
-    handler: handler.handler
+    handler: src/handler.handler
     events:
       - httpApi: "*"
+  scheduled:
+    handler: src/scheduledJobHandler.handler
+    events:
+      - schedule: cron(0 0 * * 0)
