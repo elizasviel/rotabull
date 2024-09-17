@@ -14,18 +14,48 @@ app.use(express.json());
 app.use(cors());
 
 app.get("/triggerManualJob", async (req, res) => {
+  res.writeHead(200, {
+    "Content-Type": "application/json",
+    "Transfer-Encoding": "chunked",
+  });
+
+  const sendHeartbeat = () => {
+    res.write("\n");
+  };
+
+  const heartbeat = setInterval(sendHeartbeat, 5000);
+
   try {
     await Promise.all([fetchAndStoreUsers(), fetchReadme(), fetchTickets()]);
-    res.json({ message: "Manual job triggered successfully" });
+    clearInterval(heartbeat);
+    const response = JSON.stringify({
+      message: "Manual job triggered successfully",
+    });
+    res.write(response);
+    res.end();
   } catch (error) {
+    clearInterval(heartbeat);
     console.error("Error in /triggerManualJob endpoint:", error);
-    res
-      .status(500)
-      .json({ error: "An error occurred while triggering the manual job" });
+    const errorResponse = JSON.stringify({
+      error: "An error occurred while triggering the manual job",
+    });
+    res.write(errorResponse);
+    res.end();
   }
 });
 
 app.post("/suggest", async (req, res) => {
+  res.writeHead(200, {
+    "Content-Type": "application/json",
+    "Transfer-Encoding": "chunked",
+  });
+
+  const sendHeartbeat = () => {
+    res.write("\n");
+  };
+
+  const heartbeat = setInterval(sendHeartbeat, 5000);
+
   try {
     const { text_body } = req.body;
     console.log("TEXT BODY", text_body);
@@ -35,7 +65,6 @@ app.post("/suggest", async (req, res) => {
       },
     });
 
-    //console.log("ALL SLUGS", allSlugs);
     // Check against support docs first
     const slug1 = await forge.$withContext(
       "Here are all the URL slugs of existing Rotabull support articles: " +
@@ -51,7 +80,6 @@ app.post("/suggest", async (req, res) => {
 
     console.log("slug1", slug1.response);
 
-    // Check against support docs first
     const slug2 = await forge.$withContext(
       `Here are all the URL slugs of existing Rotabull support articles: ` +
         allSlugs.map((slug) => slug.slug).join(", ") +
@@ -66,9 +94,6 @@ app.post("/suggest", async (req, res) => {
 
     console.log("slug2", slug2.response);
 
-    //Maybe an intermediate step here to fetch the actual text of the two support docs?
-
-    //Then generate a response based on the support docs
     const responseText1 = await forge.$withContext(
       `You are a customer support agent for Rotabull, a modern system for aerospace part sellers & buyers. You are given the following two support articles and a customer query.` +
         `ARTICLE 1 URL: https://support.rotabull.com/docs/${slug1.response}` +
@@ -98,18 +123,24 @@ app.post("/suggest", async (req, res) => {
 
     console.log("responseText2", responseText2.response);
 
-    res.json({
+    clearInterval(heartbeat);
+    const response = JSON.stringify({
       suggested_articles: [
         "https://support.rotabull.com/docs/" + slug1.response,
         "https://support.rotabull.com/docs/" + slug2.response,
       ],
       suggested_response: responseText2.response,
     });
+    res.write(response);
+    res.end();
   } catch (error) {
+    clearInterval(heartbeat);
     console.error("Error in /suggest endpoint:", error);
-    res
-      .status(500)
-      .json({ error: "An error occurred while processing your request" });
+    const errorResponse = JSON.stringify({
+      error: "An error occurred while processing your request",
+    });
+    res.write(errorResponse);
+    res.end();
   }
 });
 

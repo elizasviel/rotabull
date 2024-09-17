@@ -8,6 +8,8 @@ service: customersupport
 provider:
   name: aws
   runtime: nodejs20.x
+  timeout: 900
+  #Timeout needs to be 15 minutes to allow for data fetching to complete
 
 functions:
   api:
@@ -17,4 +19,14 @@ functions:
   scheduled:
     handler: src/scheduledJobHandler.handler
     events:
-      - schedule: cron(0 0 * * 0)
+      - schedule: cron(0 0 ? * SUN *)
+plugins:
+  - serverless-dotenv-plugin
+
+package:
+  patterns:
+    - "!node_modules/.prisma/client/libquery_engine-*"
+    - "node_modules/.prisma/client/libquery_engine-rhel-*"
+    - "!node_modules/prisma/libquery_engine-*"
+    - "!node_modules/@prisma/engines/**"
+    - "!node_modules/.cache/prisma/**" # only required for Windows
