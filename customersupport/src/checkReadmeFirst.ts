@@ -14,18 +14,48 @@ app.use(express.json());
 app.use(cors());
 
 app.get("/triggerManualJob", async (req, res) => {
+  res.writeHead(200, {
+    "Content-Type": "application/json",
+    "Transfer-Encoding": "chunked",
+  });
+
+  const sendHeartbeat = () => {
+    res.write("\n");
+  };
+
+  const heartbeat = setInterval(sendHeartbeat, 5000);
+
   try {
     await Promise.all([fetchAndStoreUsers(), fetchReadme(), fetchTickets()]);
-    res.json({ message: "Manual job triggered successfully" });
+    clearInterval(heartbeat);
+    const response = JSON.stringify({
+      message: "Manual job triggered successfully",
+    });
+    res.write(response);
+    res.end();
   } catch (error) {
+    clearInterval(heartbeat);
     console.error("Error in /triggerManualJob endpoint:", error);
-    res
-      .status(500)
-      .json({ error: "An error occurred while triggering the manual job" });
+    const errorResponse = JSON.stringify({
+      error: "An error occurred while triggering the manual job",
+    });
+    res.write(errorResponse);
+    res.end();
   }
 });
 
 app.post("/suggest", async (req, res) => {
+  res.writeHead(200, {
+    "Content-Type": "application/json",
+    "Transfer-Encoding": "chunked",
+  });
+
+  const sendHeartbeat = () => {
+    res.write("\n");
+  };
+
+  const heartbeat = setInterval(sendHeartbeat, 5000);
+
   try {
     const { text_body } = req.body;
     console.log("TEXT BODY", text_body);
@@ -35,21 +65,7 @@ app.post("/suggest", async (req, res) => {
       },
     });
 
-    // Generate initial response based on Zendesk tickets
-    const initialResponse = await forge.$withContext(
-      `You are a customer support agent for Rotabull, a modern system for aerospace part sellers & buyers. You are given the following customer query.` +
-        `CUSTOMER QUERY: ${text_body}` +
-        `Please use the provided Zendesk ticket comment data to generate a response to the customer query. Reply with only the response text and nothing else.` +
-        `RESPONSE: `,
-      {
-        collectionId: "908169b2-84a3-46bf-82a2-f1963154884a",
-        chunkCount: 10,
-      }
-    );
-
-    console.log("initialResponse", initialResponse.response);
-
-    // Find relevant support doc slugs
+    // Check against support docs first
     const slug1 = await forge.$withContext(
       "Here are all the URL slugs of existing Rotabull support articles: " +
         allSlugs.map((slug) => slug.slug).join(", ") +
@@ -78,14 +94,12 @@ app.post("/suggest", async (req, res) => {
 
     console.log("slug2", slug2.response);
 
-    // Improve the response using support docs
-    const improvedResponse = await forge.$withContext(
-      `You are a customer support agent for Rotabull, a modern system for aerospace part sellers & buyers. You are given the following customer query, an initial response, and two relevant support articles.` +
-        `CUSTOMER QUERY: ${text_body}` +
-        `INITIAL RESPONSE: ${initialResponse.response}` +
+    const responseText1 = await forge.$withContext(
+      `You are a customer support agent for Rotabull, a modern system for aerospace part sellers & buyers. You are given the following two support articles and a customer query.` +
         `ARTICLE 1 URL: https://support.rotabull.com/docs/${slug1.response}` +
         `ARTICLE 2 URL: https://support.rotabull.com/docs/${slug2.response}` +
-        `Please improve the initial response using information from the provided support articles. Reply with only the improved response text and nothing else.` +
+        `CUSTOMER QUERY: ${text_body}` +
+        `Please respond to the customer query based on the provided support articles. Reply with only the response text and nothing else.` +
         `RESPONSE: `,
       {
         collectionId: "57ff8337-6d12-416a-802b-e6cedfb3c7ec",
@@ -93,20 +107,40 @@ app.post("/suggest", async (req, res) => {
       }
     );
 
-    console.log("improvedResponse", improvedResponse.response);
+    console.log("responseText1", responseText1.response);
 
-    res.json({
+    const responseText2 = await forge.$withContext(
+      `You are a customer support agent for Rotabull, a modern system for aerospace part sellers & buyers. You are given the following customer query and a suggested response to the customer query.` +
+        `CUSTOMER QUERY: ${text_body}` +
+        `SUGGESTED RESPONSE: ${responseText1.response}` +
+        `Please use the provided Zendesk ticket comment data to improve the suggested response to the customer query. Reply with only the improved suggested response and nothing else.` +
+        `RESPONSE: `,
+      {
+        collectionId: "908169b2-84a3-46bf-82a2-f1963154884a",
+        chunkCount: 10,
+      }
+    );
+
+    console.log("responseText2", responseText2.response);
+
+    clearInterval(heartbeat);
+    const response = JSON.stringify({
       suggested_articles: [
         "https://support.rotabull.com/docs/" + slug1.response,
         "https://support.rotabull.com/docs/" + slug2.response,
       ],
-      suggested_response: improvedResponse.response,
+      suggested_response: responseText2.response,
     });
+    res.write(response);
+    res.end();
   } catch (error) {
+    clearInterval(heartbeat);
     console.error("Error in /suggest endpoint:", error);
-    res
-      .status(500)
-      .json({ error: "An error occurred while processing your request" });
+    const errorResponse = JSON.stringify({
+      error: "An error occurred while processing your request",
+    });
+    res.write(errorResponse);
+    res.end();
   }
 });
 

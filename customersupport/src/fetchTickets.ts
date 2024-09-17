@@ -1,6 +1,5 @@
 // Import required modules
 import fetch, { Response } from "node-fetch";
-import type { RequestInit } from "node-fetch";
 import { PrismaClient } from "@prisma/client";
 import forge from "../forge/client";
 
